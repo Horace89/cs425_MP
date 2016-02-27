@@ -1,0 +1,9 @@
+This dir contains MPs in class cs425
+
+mp0: socket programming
+	1) deploy TCP and UDP socket API to create server and client connection and message exchange
+
+mp1: Multicast Ordering
+	1) implement FIFO, causal and total ordering to create a 'chat room' where different processes can talk to each other, and messages will be delivered at each process in a given order
+	2) for a local machine, each copy of code can run on different terminal specified as different processes
+	3) to demo causal and total ordering, try to modify code for process1 to create larger delay in a local machine, so that messages from other processes will arrive first
