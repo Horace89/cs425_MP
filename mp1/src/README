@@ -1,0 +1,1 @@
+clang++ mp1.cpp -o mp1 -lpthread
