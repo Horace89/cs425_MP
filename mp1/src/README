@@ -25,8 +25,8 @@ README
 Implementation Detail:
 
 1. Step1: create socket connections
-	1.1. With user specified config file, processes create connections with each other using UDP protocol via IP address and port number.
-	1.2. After established the connection, each process will be listening to a its own IP and port using a thread and be able to send message to other processes via their IP and port using other threads.
+	1.1. With user specified config file, processes create connections with each other using datagram sockets and UDP protocol with provided IP address and port number.
+	1.2. After established the connection, each process binds a socket to its own IP and port and listens to incoming message via a thread. At the same time, each process is also able to send message to other processes by connecting a socket to the destination process’s IP and port through creating new threads.
 
 2. Step2: Simulating network delays
 	2.1. Given a range (min, max) of possible delay specified in config file, the program uniformly and randomly generates a delay within this range for a channel when a message is being sent from one process to another. As a test case, here I set min=1s and max=10s. 
@@ -39,7 +39,7 @@ Implementation Detail:
 		3.1.3. Initialize each entry of the vectorstamps to be 0. When a process sends a message, increment its entry by 1. The sent message carries the vectorstamps of a process. 
 		3.1.4. After a process sends a message, the message is pushed back into a holdback list, where each entry corresponds to a pair of vectorstamps carried by that message and the message itself. When a process i receives a message, the message is also pushed back into the holdback list.
 3.1.5. Then process i will iterate through the entire list, for each entry j of a vectorstamps in i and a received vectorstamps, if V_j[j] = V_i[j] + 1 and V_j[k] <= V_i[k] (k!=j), then deliver this message, and update V_i[j] += 1. Repeat step 3.1.5 until no message is allowed to be delivered.
-3.1.6. In this implementation, a thread is used to listen to incoming messages and to deliver messages. A new thread will be created and used to send a message to a process.
+3.1.6. In this implementation, a thread is used to listen to incoming messages and to deliver messages. A new thread will be created whenever needs to send a message to a process.
 
 	3.2 total ordering
 		3.2.1. According to the definition of total ordering: if a correct process delivers message m before m’, then any correct process that delivers m’ will have already delivered m, an algorithm with a sequencers to decide the order of messages to deliver in a group is implemented. This algorithm requires either an independent sequencer or to select a member in the group to be sequencer. Here I use the second approach and picked process1 as sequencer. 
@@ -49,7 +49,7 @@ Implementation Detail:
 		3.2.5 When a process receives a message, it pushes the message back to the holdback queue.
 		3.2.6 When a process receives a order message, it pushes the information of this message back to a min_heap, which is ordered by order number assigned to the message, and each entry has a pair of sender process ID and the number of sent messages.
 		3.2.7. For every 10s, a process will try to deliver messages by checking its own order number and the root of min_heap, if they are the same, then check if the corresponded message exists in the vector of hashmaps. If it is also true, then deliver this message. All of these will be finished in a while loop until either the min_heap is empty or the conditions are not true.
-		3.2.8. In this implementation, a thread is used to listen incoming message and push message back to the queue. A thread is used to deliver messages. A new thread is created and used to send messages. In the sequencer, a new thread will also be created to send order messages to processes in the group. 
+		3.2.8. In this implementation, a thread is used to listen incoming message and push message back to the queue. A thread is used to deliver messages. A new thread is created whenever needs to send messages. In the sequencer, a new thread will also be created whenever needs to send order messages to processes in the group. 
 
 ================
 How to run:	
