@@ -1,2 +1,59 @@
+=============================================================
+This README contains description of CS425 MP1. In This MP,
+Two ordered multicast protocol: causal and total ordering
+are implemented in C++. The implementation has three steps,
+one is built upon another. Step1: unicast with artificial 
+delay. Step2: multicast. Step3: multicast with causal or
+total ordering. For further infomation please contact author
+Wei Yang via email: weiyang4 AT illinois DOT edu.
+
+This description has three parts:
+1. Files contained
+2. Implementation Detail
+3. Execute program
+=============================================================
+
+================
+Files contained:
+mp1.cpp
+mp1
+config
+README
+
+=====================
+Implementation Detail:
+
+1. step2: Simulating network delays
+	
+
+2. step3: Ordered Multicast Protocol
+
+	1) causal ordering
+
+	2) total ordering
+
+================
+Execute program:	
+
 ## To compile
 >> clang++ mp1.cpp -o mp1 -lpthread
+
+## To run
+
+1) to demo causal ordering
+>> ./mp1 config 1 causal
+>> ./mp1 config 2 causal
+>> ./mp1 config 3 causal
+>> ./mp1 config 4 causal
+
+2) to demo total ordering
+>> ./mp1 config 1 total
+>> ./mp1 config 2 total
+>> ./mp1 config 3 total
+>> ./mp1 config 4 total
+
+3) to send message from process1 to other processes:
+>> msend Hello, I am process1
+
+4) to exit program
+>> exit
