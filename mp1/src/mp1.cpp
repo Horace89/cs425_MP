@@ -58,8 +58,8 @@ using std::unordered_map;
 using std::queue;
 
 
-//#define SERVERPORT "4950"	// the port users will be connecting to
-#define HOST "localhost" // hostname, assume to use the same hosename, might need to change this later
+//#define SERVERPORT "4950" // the port users will be connecting to
+//#define HOST "localhost" // hostname, assume to use the same hosename, might need to change this later
 #define MAXBUFLEN 1000 // max len of message to receive
 static int message_sent;
 static string ordering;
@@ -70,7 +70,7 @@ static int master_proc_id;
 static int message_deliver_order = 1;
 
 static vector< priority_queue< pair<int, string> > > holdback_pq; // holdback queue for fifo ordering
-static list< pair<vector<int>, string> > holdback_causal; // holdback queue for causal ordering
+static list<pair< vector<int>, string> > holdback_causal; // holdback queue for causal ordering
 static vector< unordered_map<int, string> > holdback_total; //holdback queue for total ordering, each elem in arr is a ma: key=message_id, value=message
 static priority_queue< pair< int, pair<int, int> > > deliver_q; // deliver q to store message with order added to be delivered: proc1 own message and received message
 static vector<int> vec_clock;
@@ -136,7 +136,7 @@ int unicast_send(struct MultiCastProc* dest, const char* message, int rand_delay
     /*  convert host info from text strings to binary
      int getaddrinfo(const char *nodename, const char *servname, const struct addrinfo *hints, struct addrinfo **res);
      */
-    if ((rv = getaddrinfo(HOST, dest->proc_port.c_str(), &hints, &servinfo)) != 0)
+    if ((rv = getaddrinfo(dest->proc_ip.c_str(), dest->proc_port.c_str(), &hints, &servinfo)) != 0)
     {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return -1;
@@ -375,7 +375,7 @@ int unicast_receive(struct MultiCastProc* src)
     hints.ai_socktype = SOCK_DGRAM; // socket type = SOCK_DGRAM
     hints.ai_flags = AI_PASSIVE; // use my IP
     
-    if ((rv = getaddrinfo(HOST, src->proc_port.c_str(), &hints, &servinfo)) != 0)
+    if ((rv = getaddrinfo(src->proc_ip.c_str(), src->proc_port.c_str(), &hints, &servinfo)) != 0)
     {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return -1;

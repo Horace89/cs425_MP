@@ -1,4 +1,4 @@
-This dir contains MPs in class cs425
+This dir contains MPs in class cs425 Distributed Systems
 
 mp0: socket programming
 	1) deploy TCP and UDP socket API to create server and client connection and message exchange
