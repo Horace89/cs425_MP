@@ -7,3 +7,4 @@ mp1: Multicast Ordering
 	1) implement FIFO, causal and total ordering to create a 'chat room' where different processes can talk to each other, and messages will be delivered at each process in a given order
 	2) for a local machine, each copy of code can run on different terminal specified as different processes
 	3) to demo causal and total ordering, try to modify code for process1 to create larger delay in a local machine, so that messages from other processes will arrive first
+	4) NOTE that FIFO ordering still needs to be further tested and refined!!!!!!!!!!

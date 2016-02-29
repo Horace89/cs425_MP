@@ -1,23 +1,3 @@
-/*
- struct addrinfo {
- int              ai_flags;     // AI_PASSIVE, AI_CANONNAME, etc.
- int              ai_family;    // AF_INET, AF_INET6, AF_UNSPEC
- int              ai_socktype;  // SOCK_STREAM, SOCK_DGRAM
- int              ai_protocol;  // use 0 for "any"
- size_t           ai_addrlen;   // size of ai_addr in bytes
- struct sockaddr *ai_addr;      // struct sockaddr_in or _in6
- char            *ai_canonname; // full canonical hostname
- struct addrinfo *ai_next;      // linked list, next node
- };
- */
-
-/*
- struct sockaddr {
- unsigned short    sa_family;    // address family, AF_xxx
- char              sa_data[14];  // 14 bytes of protocol address
- };
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -57,34 +37,34 @@ using std::to_string;
 using std::unordered_map;
 using std::queue;
 
-
-//#define SERVERPORT "4950" // the port users will be connecting to
-//#define HOST "localhost" // hostname, assume to use the same hosename, might need to change this later
+/* Global Variables */
 #define MAXBUFLEN 1000 // max len of message to receive
-static int message_sent;
-static string ordering;
-static int total_proc;
-static int min;
-static int delay_range;
-static int master_proc_id;
-static int message_deliver_order = 1;
+static int message_sent; // number of sent messages
+static string ordering; // ordered multicast type: causal or total
+static int total_proc; // number of processes in the chat room
+static int min; // min value of delay
+static int delay_range; // range of delay
+static int master_proc_id; // this process's ID
+static int message_deliver_order = 1; // order number in this process
 
 static vector< priority_queue< pair<int, string> > > holdback_pq; // holdback queue for fifo ordering
 static list<pair< vector<int>, string> > holdback_causal; // holdback queue for causal ordering
 static vector< unordered_map<int, string> > holdback_total; //holdback queue for total ordering, each elem in arr is a ma: key=message_id, value=message
 static priority_queue< pair< int, pair<int, int> > > deliver_q; // deliver q to store message with order added to be delivered: proc1 own message and received message
-static vector<int> vec_clock;
-static vector<struct MultiCastProc*> proc_info;
+static vector<int> vec_clock; // this process's own vectorstamps
+static vector<struct MultiCastProc*> proc_info; // each process's info
 
 pthread_mutex_t mutexA = PTHREAD_MUTEX_INITIALIZER; // init mutex
 
-/* function declaration */
+/* Function Declaration */
+
+// send messages
 int unicast_send(struct MultiCastProc& dest, const char* message, int rand_delay);
 void* unicast_send_delay(void* data);
 void msend(string& message);
 void* morder(void* void_m);
 
-void *get_in_addr(struct sockaddr *sa);
+// listen and delvier messages
 int unicast_receive(struct MultiCastProc& src);
 void* listening(void* data);
 void* listeningHandle(void* data);
@@ -95,6 +75,7 @@ void holdbackDeliverCausal(int master_id, int sender_id);
 void* delivering(void*);
 void deliverTotal();
 
+/* Structs */
 struct MultiCastProc
 {
     int proc_id;
@@ -116,12 +97,13 @@ struct SendData
 };
 
 /*======= sending message ==============*/
-/* unicast send a message to a dest */
+
+/* unicast send a message to a dest proc */
 int unicast_send(struct MultiCastProc* dest, const char* message, int rand_delay)
 {
     // delay sending
-//    printf("calling unicast_send ...\n");
-//    std::this_thread::sleep_for(std::chrono::seconds(rand_delay*dest->proc_id)); // extra traffic at p1 to demo causal and total ordering
+    //    printf("calling unicast_send ...\n");
+    //    std::this_thread::sleep_for(std::chrono::seconds(rand_delay*dest->proc_id)); // extra traffic at p1 to demo causal and total ordering
     std::this_thread::sleep_for(std::chrono::seconds(rand_delay));
     
     int sockfd;
@@ -170,12 +152,12 @@ int unicast_send(struct MultiCastProc* dest, const char* message, int rand_delay
     }
     else
     {
-//        printf("%s sent to %d with delay %d\n", message, dest->proc_id, rand_delay);
+        //        printf("%s sent to %d with delay %d\n", message, dest->proc_id, rand_delay);
     }
     
     freeaddrinfo(servinfo);
     
-//    printf("talker: sent %d bytes to %s\n", numbytes, HOST);
+    //    printf("talker: sent %d bytes to %s\n", numbytes, HOST);
     close(sockfd);
     return 1;
 }
@@ -183,7 +165,7 @@ int unicast_send(struct MultiCastProc* dest, const char* message, int rand_delay
 /* unicast send with delay, built on top of unicast send */
 void* unicast_send_delay(void* data)
 {
-//    printf("calling unicast_send_delay ...\n");
+    //    printf("calling unicast_send_delay ...\n");
     struct SendData* sendD = (struct SendData*)data;
     // generate rand delay
     int rand_delay = rand() % delay_range + min;
@@ -192,10 +174,13 @@ void* unicast_send_delay(void* data)
     return NULL;
 }
 
-/* send message to all procs, built on top of unicast send delay */
+/* send message to all procs, built on top of unicast send delay 
+ Different send options are available for different ordering
+ */
 void msend(string& message)
 {
-//    printf("calling msend ...\n");
+    //    printf("calling msend ...\n");
+    
     // use multithreading here, delay of message 1 should not block the sending of other message
     pthread_t p_send [total_proc-1];
     // data for total ordering
@@ -207,15 +192,16 @@ void msend(string& message)
     {
         if (i != master_proc_id-1)
         {
+            /* init struct to store send data */
             struct SendData* sendD = new SendData;
             sendD->message = message;
             sendD->proc_arr = proc_info;
             sendD->proc_id = i+1;
-//            int rand_delay = rand() % delay_range + min;
             
             // get cur time
             time_t cur_t = time(0);
-            /* choose ordering to send message, causal ordering will send a vector clock */
+            /* choose ordering to send message */
+            // fifo ordering
             if (ordering.compare("fifo") == 0)
             {
                 // print send info
@@ -225,10 +211,12 @@ void msend(string& message)
                 sendD->message = std::to_string(message_sent) + " " + std::to_string(master_proc_id) + " " + message;
                 pthread_create(&p_send[i], NULL, unicast_send_delay, (void*)sendD);
             }
+            // causal ordering
             else if (ordering.compare("causal") == 0)
             {
                 string message_causal = "";
                 
+                /* lock for changable global variables */
                 pthread_mutex_lock(&mutexA);
                 // add vector clock to message
                 for (int i = 0; i<total_proc;i++)
@@ -245,29 +233,28 @@ void msend(string& message)
                     }
                 }
                 pthread_mutex_unlock(&mutexA);
-            
+                
                 // add sender_id + message to message
                 message_causal += to_string(master_proc_id) + " " + message;
                 printf("%s\n", ("Sent \"" + message_causal + "\" to process " + to_string(sendD->proc_id) + ", system time is " + std::to_string(cur_t)).c_str());
                 sendD->message = message_causal;
-//                unicast_send(sendD->proc_arr[sendD->proc_id-1], message_causal.c_str(), rand_delay);
                 pthread_create(&p_send[i], NULL, unicast_send_delay, (void*)sendD);
                 pthread_detach(p_send[i]);
-                
-               
-                
             }
+            // total ordering
             else if (ordering.compare("total") == 0)
             {
-                printf("calling total ordering ...\n");
+//                printf("calling total ordering ...\n");
                 
+                /* lock for changable global variables */
                 pthread_mutex_lock(&mutexA);
                 // message add 'message' + sender_id + #message_sent + cur_time + message, then deliver order
                 sendD->message = std::to_string(master_proc_id) + " " +  to_string(message_sent) + " " + sendD->message;
                 order_message = sendD->message;
                 string message1 = "message " + sendD->message;
                 printf("%s\n", ("Sent \"" + message1 + "\" to process " + to_string(sendD->proc_id) +", system time is " + to_string(cur_t)).c_str());
-                // sender push sent message to holdback queue, and wait for order from sequencer
+                /* if this proc is not sequencer, then push sent message to
+                holdback queue, and wait for order from sequencer to deliver message */
                 if (master_proc_id != 1)
                 {
                     holdback_total[master_proc_id-1][message_sent] = message;
@@ -282,7 +269,7 @@ void msend(string& message)
         }
     }
     
-    // deliver message at master proc
+    // deliver message at master proc if causal ordering is using
     if (ordering.compare("causal") == 0)
     {
         pthread_mutex_lock(&mutexA);
@@ -291,7 +278,7 @@ void msend(string& message)
         pthread_mutex_unlock(&mutexA);
     }
     
-    // sequencer send order message
+    // sequencer send order message if this proc is 1 and total ordering is using
     if (master_proc_id == 1 && ordering.compare("total") == 0)
     {
         printf("sequencer send order message ...\n");
@@ -302,12 +289,14 @@ void msend(string& message)
         pthread_create(&p_morder, NULL, morder, (void*)tmp);
         pthread_detach(p_morder);
     }
-
 }
 
+/* for total ordering, deliver messages at this proc, and 
+ send order message to other proc if this proc is sequencer */
 void* morder(void* data)
 {
-//    printf("calling morder ...\n");
+    //    printf("calling morder ...\n");
+    
     // sleep for 10s before deliver
     std::this_thread::sleep_for(std::chrono::seconds(10));
     struct SendData* tmp = (struct SendData*)data;
@@ -326,7 +315,7 @@ void* morder(void* data)
             sendD->proc_id = i+1;
             // generate random delay
             int rand_delay = rand() % delay_range + min;
-
+            
             pthread_mutex_lock(&mutexA);
             string message2 = "order " + to_string(message_deliver_order) + " " + sendD->message;
             
@@ -346,16 +335,6 @@ void* morder(void* data)
 }
 
 /*====== receiving message ============*/
-// get sockaddr, IPv4 or IPv6:
-void *get_in_addr(struct sockaddr *sa)
-{
-    if (sa->sa_family == AF_INET)
-    {
-        return &(((struct sockaddr_in*)sa)->sin_addr);
-    }
-    
-    return &(((struct sockaddr_in6*)sa)->sin6_addr);
-}
 
 /* receive a message from src */
 int unicast_receive(struct MultiCastProc* src)
@@ -396,7 +375,6 @@ int unicast_receive(struct MultiCastProc* src)
             perror("listener: bind");
             continue;
         }
-        
         break;
     }
     
@@ -408,7 +386,7 @@ int unicast_receive(struct MultiCastProc* src)
     
     freeaddrinfo(servinfo);
     
-//    printf("listener: waiting to recvfrom...\n");
+    //    printf("listener: waiting to recvfrom...\n");
     
     addr_len = sizeof their_addr;
     if ((numbytes = recvfrom(sockfd, message_received, MAXBUFLEN-1 , 0, (struct sockaddr *)&their_addr, &addr_len)) == -1)
@@ -417,24 +395,18 @@ int unicast_receive(struct MultiCastProc* src)
         exit(1);
     }
     message_received[numbytes] = '\0';
-//    printf("listener: got packet from %s\n", inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)& their_addr), s, sizeof s));
-//    printf("listener: packet is %d bytes long\n", numbytes);
-    
-//    printf("listener: packet contains \"%s\"\n", buf);
-    
-    
     
     /* here push the new message along with its sender message count into a pq, not deliver message here
-     call function holdbackDeliver(sender_id) to deliver message once they are valid
-     */
+     call function holdbackDeliver(sender_id) to deliver message once they are valid */
     
     string message_str(message_received); // original message contains vector clock and sender_id
-
-//    printf("pushing in holdback_pq ...\n");
     
-    /* critical section, only one received message can update holdback queue */
+    //    printf("pushing in holdback_pq ...\n");
+    
+
     /* choose which ordering to deliver message */
     time_t cur_t = time(0);
+    // fifo ordering
     if (ordering.compare("fifo") == 0)
     {
         istringstream split_m(message_str);
@@ -451,6 +423,7 @@ int unicast_receive(struct MultiCastProc* src)
         holdbackDeliverFIFO(sender_id_int-1);
         pthread_mutex_unlock(&mutexA);
     }
+    // causal ordering
     else if (ordering.compare("causal") == 0)
     {
         // for causal ordering, use #vec_clock of cur proc as key for ordering
@@ -474,6 +447,7 @@ int unicast_receive(struct MultiCastProc* src)
         holdbackDeliverCausal(src->proc_id, sender_id_int);
         pthread_mutex_unlock(&mutexA);
     }
+    // total ordering
     else if (ordering.compare("total") == 0)
     {
         istringstream split_m(message_str);
@@ -493,14 +467,7 @@ int unicast_receive(struct MultiCastProc* src)
             // if sequencer receives a message
             if (master_proc_id == 1)
             {
-//                printf("sequencer receive message ...\n");
-                // send order message
-//                pthread_mutex_lock(&mutexA);
-//                string message2 = "Order " + to_string(message_deliver_order) + " " + to_string(sender_id_int) + " " + to_string(sender_message_count_int) + message;
                 string message2 = to_string(sender_id_int) + " " + to_string(sender_message_count_int) + " " + message;
-//                message_deliver_order++;
-//                pthread_mutex_unlock(&mutexA);
-                
                 struct SendData* tmp = new struct SendData;
                 tmp->message = message2;
                 tmp->proc_id = sender_id_int;
@@ -511,45 +478,49 @@ int unicast_receive(struct MultiCastProc* src)
             // if other proc receives message
             else
             {
-//                printf("other proc receive message ...\n");
+                // printf("other proc receive message ...\n");
                 // add message to holdback map
                 pthread_mutex_lock(&mutexA);
                 holdback_total[sender_id_int-1][sender_message_count_int] = message;
                 pthread_mutex_unlock(&mutexA);
             }
         }
-        /* other proc receive order message
+        /* other proc receive order message,
          sequencer will never receive order message */
         else if (token1.compare("order") == 0)
         {
             int start = 0;
-//            printf("calling order ...\n");
+            //            printf("calling order ...\n");
             int message_deliver_order_received;
             split_m >> message_deliver_order_received >> sender_id_int >> sender_message_count_int;
             start += token1.length() + 1 + to_string(sender_id_int).length() + 1 + to_string(sender_message_count_int).length() + 1 + to_string(message_deliver_order_received).length() + 1;
             string message = message_str.substr(start);
             printf("%s\n", ("Received order \"" + message + "\" from process " + to_string(sender_id_int) + ", message count is " + to_string(sender_message_count_int) + " order is " + to_string(message_deliver_order_received) + ", system time is " + to_string(cur_t)).c_str());
             
-            // add order to queue
+            // add order message to queue
             pthread_mutex_lock(&mutexA);
             deliver_q.push(make_pair(-message_deliver_order_received, make_pair(sender_id_int, sender_message_count_int)));
             pthread_mutex_unlock(&mutexA);
-            
         }
     }
-    
     close(sockfd);
     return 1;
 }
 
+/* for total ordering, deliver message 
+ 1. check if order message queue is empty or not
+ 2. if not empty, then check if the smallest order is the same as this proc's own order number
+ 3. if true, then try to find order number corresponded message, and deliver it
+ 4. repeat step 1-3 until order message queue is empty or conditions are not true
+ */
 void deliverTotal()
 {
-//    printf("calling deliverTotal ...\n");
+    //    printf("calling deliverTotal ...\n");
     pthread_mutex_lock(&mutexA);
-//    printf("message_deliver_order %d, deliver_q size %d\n", message_deliver_order, deliver_q.size());
+    //    printf("message_deliver_order %d, deliver_q size %d\n", message_deliver_order, deliver_q.size());
     while (!deliver_q.empty())
     {
-//        printf("received order %d, my order %d\n", -deliver_q.top().first, message_deliver_order);
+        //        printf("received order %d, my order %d\n", -deliver_q.top().first, message_deliver_order);
         if (-deliver_q.top().first == message_deliver_order)
         {
             int sender_id = deliver_q.top().second.first;
@@ -580,37 +551,38 @@ void deliverTotal()
     pthread_mutex_unlock(&mutexA);
 }
 
-/* always listening message from cur proc's own port */
+/* listening message from cur proc's own port */
 void* listening(void* data)
 {
-//    printf("calling listening ...\n");
+    //    printf("calling listening ...\n");
     ListenData* listenD = (ListenData*)data;
-    while (1) // use stop as signal to stop thread
+    while (1)
     {
         unicast_receive(listenD->proc_arr[master_proc_id-1]);
     }
     return NULL;
 }
 
+/* for total ordering, try to deliver message every 10s */
 void* delivering(void*)
 {
-//    printf("calling delivering ...\n");
+    //    printf("calling delivering ...\n");
     while (1) {
         std::this_thread::sleep_for(std::chrono::seconds(10));
         deliverTotal();
-        
     }
     return NULL;
 }
 
 
-/* before this step, add a new <sender, message> into holdback_pq when a message arrives 
- only need to recursion on one sender, since a new message from a sender will triggle 
+/* for fifo ordering
+ before this step, add a new <sender, message> into holdback_pq when a message arrives
+ only need to recursion on one sender, since a new message from a sender will triggle
  all valid message to be received
  */
-void holdbackDeliverFIFO(int sender) // already -1
+void holdbackDeliverFIFO(int sender)
 {
-//    printf("calling holdbackDeliver ...\n");
+    //    printf("calling holdbackDeliver ...\n");
     pair<int, string> priority_message = holdback_pq[sender].top();
     int s = - priority_message.first;
     string message = priority_message.second;
@@ -646,21 +618,24 @@ void holdbackDeliverFIFO(int sender) // already -1
         // do nothing, wait until the valid message arrives
     }
 }
-
+/* dliver message fro fifo ordering */
 void messageDeliverFIFO(string& message, int sender_id)
 {
     time_t cur_t = time(0);
     printf("%s\n", ("Received \"" + message + "\" from process " + to_string(sender_id+1) + ", message count " + ", system time is " + std::to_string(cur_t)).c_str());
 }
 
+/* for causal ordering, try to deliver message
+ by comparing process's own vectorstamp and
+ those that are piggyback through received messages
+ and are pushed into holdback queue
+ */
 void holdbackDeliverCausal(int master_id, int sender_id)
 {
-//    printf("calling holdbackDeliverCausal ..., sender %d, list size %d\n", sender_id-1, holdback_causal[sender_id-1].size());
-//    printf("calling holdbackDeliverCausal ..., sender %d, list size %d\n", sender_id-1, holdback_causal.size());
+    //    printf("calling holdbackDeliverCausal ..., sender %d, list size %d\n", sender_id-1, holdback_causal.size());
     time_t cur_t = time(0);
     list< pair< vector<int>, string > >::iterator itr;
     
-//    for (itr = holdback_causal[sender_id-1].begin(); itr!=holdback_causal[sender_id-1].end(); itr++)
     for (itr = holdback_causal.begin(); itr!=holdback_causal.end(); itr++)
     {
         int compare_val = compareVecClock(vec_clock, itr->first, sender_id);
@@ -672,13 +647,13 @@ void holdbackDeliverCausal(int master_id, int sender_id)
             printf("%s\n", ("Delivered \"" + itr->second + "\" from process " + std::to_string(sender_id) + ", message count " + std::to_string(itr->first[sender_id-1]) + ", system time is " + std::to_string(cur_t)).c_str());
             // remove delivered message
             holdback_causal.erase(itr);
-            // recursively find next valid message, in case any previous becomes valid after updating vector clock
+            /* recursively find next valid message, in case any 
+             previous becomes valid after updating vector clock */
             if (holdback_causal.size() > 0)
             {
                 for (int sender_id = 1; sender_id<=total_proc; sender_id++)
                 {
-//                    if (sender_id != master_id)
-                        holdbackDeliverCausal(master_id, sender_id);
+                    holdbackDeliverCausal(master_id, sender_id);
                 }
             }
         }
@@ -697,24 +672,24 @@ void holdbackDeliverCausal(int master_id, int sender_id)
     }
 }
 
-/* possible bug here so that if more than two messages are sent from diff procs code crashes */
-
 /*
- compare two vector clock
+ compare two vectorstamps
  return 0 if v2 < v1
  return 1 if v1 = v2
  return 2 if v2 > v1
  */
 int compareVecClock(vector<int>& my_clock, vector<int>& received_clock, int sender_id)
 {
-//    printf("calling compareVecClock ...\n");
+    //    printf("calling compareVecClock ...\n");
     if (holdback_causal.empty()) return 2;
     
-//    for (auto x:my_clock) printf("%d ", x);
-//    printf("\n");
+    /* print out compared two vectorstamps */
+    //    for (auto x:my_clock) printf("%d ", x);
+    //    printf("\n");
     
-//    for (auto x:received_clock) printf("%d ", x);
-//    printf("\n");
+    //    for (auto x:received_clock) printf("%d ", x);
+    //    printf("\n");
+    
     if (my_clock[sender_id-1] +1 == received_clock[sender_id-1])
     {
         for (int i = 0; i<my_clock.size(); i++)
@@ -778,7 +753,7 @@ int main(int argc, char *argv[])
         holdback_total.push_back(tmp_map);
     }
     
-//    struct MultiCastProc* new_proc = new MultiCastProc [total_proc];
+    //    struct MultiCastProc* new_proc = new MultiCastProc [total_proc];
     for (int i = 0;i < procs.size();i++)
     {
         istringstream split_line(procs[i]);
@@ -786,7 +761,6 @@ int main(int argc, char *argv[])
         string proc_ip;
         string proc_port;
         split_line >> proc_id >> proc_ip >> proc_port;
-//        printf("%d\n", proc_id);
         struct MultiCastProc* tmp_proc = new struct MultiCastProc;
         tmp_proc->proc_id = proc_id;
         tmp_proc->proc_ip = proc_ip;
@@ -823,7 +797,7 @@ int main(int argc, char *argv[])
     {
         pthread_create(&p_deliver, NULL, delivering, NULL);
     }
-
+    
     
     /* send to other proc's ports */
     srand(time(NULL));
@@ -842,20 +816,21 @@ int main(int argc, char *argv[])
             pthread_cancel(p_listen);
             break;
         }
+        // multicast messages
         else if (token1.compare("msend") == 0)
         {
             message = split_command.str().substr(token1.length()+1);
             
-            // critical section
+            // lock when updating number of sent messages
             pthread_mutex_lock(&mutexA);
             // increment #sent message
             message_sent++;
-            // update vector clock for causal ordering
-//            vec_clock[master_proc_id-1] = message_sent;
             pthread_mutex_unlock(&mutexA);
+            
             // multicast
             msend(message);
         }
+        // handle exceptions
         else
         {
             printf("message not understood, please try again!\n");

@@ -1,2 +1,81 @@
+=============================================================
+This README contains description of CS425 MP1. In This MP,
+two ordered multicast protocol: causal and total ordering
+are implemented in C++. The implementation has three steps,
+one is built upon another. Step1: create socket connections 
+among multiple processes to perform unicast. Step2: multicast
+with simulated delay. Step3: multicast with causal or total 
+ordering. For further infomation please contact author Wei Yang 
+via email: weiyang4 AT illinois DOT edu.
+
+This description has three parts:
+1. Files contained
+2. Implementation Detail
+3. Execute program
+=============================================================
+
+================
+Files contained:
+mp1.cpp
+mp1
+config
+README
+
+=====================
+Implementation Detail:
+
+1. Step1: create socket connections
+	1.1. With user specified config file, processes create connections with each other using datagram sockets and UDP protocol with provided IP address and port number.
+	1.2. After established the connection, each process binds a socket to its own IP and port and listens to incoming message via a thread. At the same time, each process is also able to send message to other processes by connecting a socket to the destination process’s IP and port through creating new threads.
+
+2. Step2: Simulating network delays
+	2.1. Given a range (min, max) of possible delay specified in config file, the program uniformly and randomly generates a delay within this range for a channel when a message is being sent from one process to another. As a test case, here I set min=1s and max=10s. 
+2.2. To simulate the delay of a channel, each message is sent via a separated thread and a thread will sleep for a given amount of delay before sending message.
+
+3. Step3: Ordered Multicast Protocol
+	3.1. causal ordering
+		3.1.1. According to the definition of causal ordering: if multicast of message m in group g happened-before multicast of message m’ in g, then any correct process that delivers m’ will have already delivered m, I used vectorstamps to infer happened-before relation among multicast events.
+		3.1.2. Each process carries a vector of length = number of processes in the chat room. And each entry of the vector is associated with a process. Then a textbook vectorstamps algorithm is used to implement causal ordering of multicast.
+		3.1.3. Initialize each entry of the vectorstamps to be 0. When a process sends a message, increment its entry by 1. The sent message carries the vectorstamps of a process. 
+		3.1.4. After a process sends a message, the message is pushed back into a holdback list, where each entry corresponds to a pair of vectorstamps carried by that message and the message itself. When a process i receives a message, the message is also pushed back into the holdback list.
+3.1.5. Then process i will iterate through the entire list, for each entry j of a vectorstamps in i and a received vectorstamps, if V_j[j] = V_i[j] + 1 and V_j[k] <= V_i[k] (k!=j), then deliver this message, and update V_i[j] += 1. Repeat step 3.1.5 until no message is allowed to be delivered.
+3.1.6. In this implementation, a thread is used to listen to incoming messages and to deliver messages. A new thread will be created whenever needs to send a message to a process.
+
+	3.2 total ordering
+		3.2.1. According to the definition of total ordering: if a correct process delivers message m before m’, then any correct process that delivers m’ will have already delivered m, an algorithm with a sequencers to decide the order of messages to deliver in a group is implemented. This algorithm requires either an independent sequencer or to select a member in the group to be sequencer. Here I use the second approach and picked process1 as sequencer. 
+		3.2.2. Each process keeps a counter of the number of messages it has sent and piggyback it on the message, as well as its own order of the message delivered. Then the sent message will be push into a holdback queue, which is implemented using a vector of hashmaps. Each hashmap corresponds to a process, and each entry in the hashmap key=number of message sent from a process, and value=message.
+		3.2.3. The sequencer keeps an order number assigned to each message it delivers. When the sequencer (also a process) sends a message, it will sleep for 10s before delivering this message, and then it assigns a message with a unique increasingly order number and then  send this order message to every process in the same group.
+		3.2.4. When the sequencer received a message, it will sleep for 10 seconds before delivering this message and then assign it with a unique increasing order number and then send a order message to every process in the same group.
+		3.2.5 When a process receives a message, it pushes the message back to the holdback queue.
+		3.2.6 When a process receives a order message, it pushes the information of this message back to a min_heap, which is ordered by order number assigned to the message, and each entry has a pair of sender process ID and the number of sent messages.
+		3.2.7. For every 10s, a process will try to deliver messages by checking its own order number and the root of min_heap, if they are the same, then check if the corresponded message exists in the vector of hashmaps. If it is also true, then deliver this message. All of these will be finished in a while loop until either the min_heap is empty or the conditions are not true.
+		3.2.8. In this implementation, a thread is used to listen incoming message and push message back to the queue. A thread is used to deliver messages. A new thread is created whenever needs to send messages. In the sequencer, a new thread will also be created whenever needs to send order messages to processes in the group. 
+
+================
+How to run:	
+
 ## To compile
 >> clang++ mp1.cpp -o mp1 -lpthread
+
+## To run
+
+1) to demo causal ordering, execute command in different terminals of the same machine
+>> ./mp1 config 1 causal
+>> ./mp1 config 2 causal
+>> ./mp1 config 3 causal
+>> ./mp1 config 4 causal
+
+2) to demo total ordering, execute command in different terminals of the same machine
+>> ./mp1 config 1 total
+>> ./mp1 config 2 total
+>> ./mp1 config 3 total
+>> ./mp1 config 4 total
+
+3) to send a message, type command after launching a process:
+>> msend Hello
+
+4) to exit program
+>> exit
+
+
+
