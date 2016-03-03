@@ -56,6 +56,8 @@ How to run:
 
 ## To compile
 >> clang++ mp1.cpp -o mp1 -lpthread
+OR
+>> g++ mp1.cpp -o mp1 -lpthread -O3 -std=c++11
 
 ## To run
 

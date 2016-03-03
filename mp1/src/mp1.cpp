@@ -741,6 +741,7 @@ int main(int argc, char *argv[])
         if (line.length() > 1) // skip empty line
             procs.push_back(line);
     }
+    CONFIG.close();
     total_proc = procs.size();
     
     // init vec_clock with 0s and holdback_pq arr
